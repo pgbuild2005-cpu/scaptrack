@@ -437,6 +437,871 @@
         </div>
       </div>
 
+      <!-- ESP32 Master Wireless Hub & Database Recording Strip -->
+      <div class="esp32-hub-strip" id="esp32-hub-panel">
+        <div class="hub-telemetry-meta">
+          <div class="meta-item">
+            <span class="live-indicator-dot pulsing" style="background:#2ecc71"></span>
+            <strong>ESP32 Hub: Online</strong> (<span id="hub-ip-display">192.168.4.1</span>)
+          </div>
+          <div class="meta-item">⚡ <strong>50 Hz</strong> Ingestion</div>
+          <div class="meta-item">📶 <strong id="hub-rssi-display">-44 dBm</strong></div>
+          <div class="meta-item">🔋 Hub Battery: <strong id="hub-battery-display">92%</strong></div>
+          <div class="meta-item">📡 Sensors: <strong id="hub-sensors-count-display">18/18 Online</strong></div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div id="rec-status-indicator" style="display:none">
+            <span class="rec-badge" id="rec-badge-text">● REC: 00:00 (0 pkts)</span>
+          </div>
+          <button id="btn-db-record" class="btn" style="background:#ff4757;color:#fff;font-weight:700;padding:7px 14px;border-radius:10px" onclick="toggleDatabaseRecording()">
+            🔴 Record to Database
+          </button>
+          <button class="btn ghost" style="background:rgba(255,255,255,0.1);color:#fff;border-color:rgba(255,255,255,0.2)" onclick="toggleSensorMatrixView()">
+            🔍 18-IMU Status Matrix
+          </button>
+          <button class="btn ghost" style="background:rgba(255,255,255,0.1);color:#fff;border-color:rgba(255,255,255,0.2)" onclick="toggleHistoricalSessionsView()">
+            📁 Past Sessions (<span id="sessions-count-badge">0</span>)
+          </button>
+        </div>
+      </div>
+
+      <!-- 18-IMU Individual Sensor Live Diagnostics Matrix (Expandable) -->
+      <div id="sensor-matrix-drawer" class="sensor-matrix-container" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div>
+            <h3 class="section-title" style="margin-bottom:0">Live 18-Sensor IMU Landmark Diagnostics</h3>
+            <p class="subtitle" style="margin-top:2px">Real-time status, 9-DoF orientation angles, battery and RF signal for each wireless node.</p>
+          </div>
+          <div class="actions">
+            <span class="badge good" id="imu-readiness-badge">System Readiness: 96% Optimal</span>
+            <button class="btn outline" onclick="refreshHardwareSensorStatus()">↻ Refresh Diagnostics</button>
+          </div>
+        </div>
+
+        <div class="sensor-cards-grid" id="imu-cards-container">
+          <!-- 18 Sensor Node Cards populated by live_stream.js -->
+        </div>
+      </div>
+
+      <!-- Historical ESP32 Database Sessions Drawer -->
+      <div id="historical-sessions-drawer" class="sensor-matrix-container" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div>
+            <h3 class="section-title" style="margin-bottom:0">Saved ESP32 Telemetry Sessions (SQLite Database)</h3>
+            <p class="subtitle" style="margin-top:2px">Historical high-frequency kinematic recordings saved from the ESP32 wireless network.</p>
+          </div>
+          <button class="btn ghost" onclick="toggleHistoricalSessionsView()">✕ Close</button>
+        </div>
+
+        <div style="overflow-x:auto">
+          <table class="history-sessions-table">
+            <thead>
+              <tr>
+                <th>Session ID</th>
+                <th>Patient ID</th>
+                <th>Movement Protocol</th>
+                <th>Packets Saved</th>
+                <th>Duration</th>
+                <th>Status</th>
+                <th>Recorded At</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="historical-sessions-tbody">
+              <!-- Rendered by live_stream.js -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Real-time angle gauges -->
+      <div class="grid g3" style="margin-top:16px">
+        <div class="card">
+          <div class="muted">Humeral Elevation</div>
+          <div class="live-value" id="val-arm-elev">120.0°</div>
+          <span class="badge good" id="badge-stream-status">Live Stream Active</span>
+        </div>
+        <div class="card">
+          <div class="muted">Right Scapula Upward Rotation</div>
+          <div class="live-value" id="val-scap-r" style="color:var(--blue)">32.0°</div>
+          <span class="badge info" id="badge-scap-r-tag">Right (Dominant)</span>
+        </div>
+        <div class="card">
+          <div class="muted">Left Scapula Upward Rotation</div>
+          <div class="live-value" id="val-scap-l" style="color:var(--red)">24.0°</div>
+          <span class="badge warn" id="val-scap-diff">8.0° Asymmetry</span>
+        </div>
+      </div>
+
+      <!-- Kinematic Curve & 3D Posture Model -->
+      <div class="split" style="margin-top:16px">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <div>
+              <h3 class="section-title" style="margin-bottom:0" id="chart-main-title">Scapular Upward Rotation vs Arm Elevation</h3>
+              <span class="muted" style="font-size:12px" id="chart-sub-title">Real-time Kinematic Track vs Normative 95% Reference Band</span>
+            </div>
+            <div class="normative-legend-box">
+              <i></i> Normative Range (95% CI)
+            </div>
+          </div>
+          
+          <div class="chart" style="margin-top:10px">
+            <svg id="kinematics-svg" viewBox="0 0 800 300" preserveAspectRatio="none">
+              <!-- Grid lines -->
+              <g stroke="#dce8ee" stroke-width="1">
+                <line x1="60" y1="40" x2="760" y2="40"/>
+                <line x1="60" y1="100" x2="760" y2="100"/>
+                <line x1="60" y1="160" x2="760" y2="160"/>
+                <line x1="60" y1="220" x2="760" y2="220"/>
+              </g>
+
+              <!-- Normative 95% Confidence Shaded Band -->
+              <polygon id="normative-band-poly" fill="rgba(46, 204, 113, 0.15)" stroke="none" points="60,220 145,178 230,140 315,108 400,82 485,60 570,45 655,37 760,32 760,52 655,57 570,65 485,80 400,102 315,128 230,160 145,192 60,220" />
+              <!-- Normative reference center line -->
+              <polyline id="curve-normative" fill="none" stroke="#2ecc71" stroke-dasharray="4,4" stroke-width="2" points="60,220 145,185 230,150 315,118 400,92 485,70 570,55 655,47 760,42" />
+
+              <!-- Active Trajectory Curves -->
+              <polyline id="curve-scap-r" fill="none" stroke="#4c8dff" stroke-width="4" points="60,220 145,185 230,150 315,118 400,92 485,70 570,55 655,47 760,42" />
+              <polyline id="curve-scap-l" fill="none" stroke="#ff647c" stroke-width="4" points="60,220 145,198 230,178 315,155 400,132 485,112 570,94 655,78 760,65" />
+              
+              <!-- Cursor line -->
+              <line id="curve-cursor" x1="400" y1="20" x2="400" y2="230" stroke="#27d5e8" stroke-dasharray="4" stroke-width="2" />
+              
+              <!-- Axis markers -->
+              <text x="60" y="250" fill="#6c8190" font-size="12">0° (Rest)</text>
+              <text x="390" y="250" fill="#6c8190" font-size="12">60° (Scaption)</text>
+              <text x="710" y="250" fill="#6c8190" font-size="12">120° (Max)</text>
+            </svg>
+          </div>
+          <div class="legend">
+            <span class="leg"><i class="line blue"></i> Right Scapula (<span id="leg-r-label">Dominant</span>)</span>
+            <span class="leg"><i class="line pink"></i> Left Scapula (<span id="leg-l-label">Affected</span>)</span>
+            <span class="leg"><i class="line" style="background:#2ecc71;height:2px;border-top:2px dashed #2ecc71"></i> Normative Reference (2:1)</span>
+            <span class="leg"><i class="line cyanline"></i> Elevation Cursor</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="section-title">Dynamic Kinematic Pose</h3>
+          <div class="bodymap" style="height:270px">
+            <div id="dynamic-posture" style="width:130px;height:185px;border:3px solid #7ca0af;border-radius:45%;transform:rotate(-7deg);position:relative;transition:transform 0.1s ease">
+              <div id="pose-arm-r" style="position:absolute;width:55px;height:100px;border:3px solid #4c8dff;border-radius:50%;left:-35px;top:35px"></div>
+              <div id="pose-arm-l" style="position:absolute;width:55px;height:100px;border:3px solid #ff647c;border-radius:50%;right:-35px;top:45px"></div>
+              <div style="position:absolute;left:45px;top:70px;width:38px;height:55px;border:3px solid #27d5e8;border-radius:12px"></div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px">
+            <span>Right: <b id="pose-val-r">32.0°</b></span>
+            <span>Left: <b id="pose-val-l">24.0°</b></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Synchronized EMG waveforms -->
+      <div class="card" style="margin-top:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <h3 class="section-title" style="margin-bottom:0" id="emg-main-title">Synchronized sEMG Oscilloscope (UT & SA)</h3>
+          <span style="font-size:12px;color:var(--muted)" id="emg-sub-title">1000 Hz Raw / Bandpass 20–450 Hz</span>
+        </div>
+        <div class="emg">
+          <svg id="emg-svg" viewBox="0 0 900 210" preserveAspectRatio="none">
+            <g opacity=".25" stroke="#9bc8d3">
+              <line x1="0" y1="35" x2="900" y2="35"/>
+              <line x1="0" y1="75" x2="900" y2="75"/>
+              <line x1="0" y1="115" x2="900" y2="115"/>
+              <line x1="0" y1="155" x2="900" y2="155"/>
+              <line x1="0" y1="195" x2="900" y2="195"/>
+            </g>
+            <polyline id="emg-wave-ut" fill="none" stroke="#27d5e8" stroke-width="2" points="0,175 100,130 200,150 300,110 400,80 500,75 600,95 700,80 800,65 900,80" />
+            <polyline id="emg-wave-sa" fill="none" stroke="#ff647c" stroke-width="2" points="0,195 100,170 200,180 300,135 400,110 500,100 600,110 700,90 800,90 900,95" />
+          </svg>
+          <div style="display:flex;gap:20px;font-size:12px;margin-top:6px">
+            <span style="color:var(--cyan)">● Upper Trapezius (UT)</span>
+            <span style="color:#ff647c">● Serratus Anterior (SA)</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions" style="margin-top:16px">
+        <button class="btn cyan" onclick="saveCurrentTrial()">Save Current Trial</button>
+        <button class="btn primary" onclick="go('reports')">Finish & View Clinical Report →</button>
+      </div>
+    </section>
+
+    <!-- 6. CLINICAL REPORT PAGE -->
+    <section class="page" id="reports">
+      <h1 class="title">Clinical Biomechanics Report</h1>
+      <p class="subtitle" id="report-patient-header">Objective findings for P-001 (A. Mehta) · Assessment Session</p>
+
+      <div class="card" style="margin-top:18px">
+        <div class="report-head">
+          <div>
+            <h3 style="margin:0;font-size:18px">SCAPTRACK Automated Clinical Summary</h3>
+            <div class="muted" style="margin-top:4px">Bilateral arm elevation · 3 recorded trials · Kinematics + sEMG</div>
+          </div>
+          <div class="actions">
+            <button class="btn ghost btn-print-preserve" onclick="window.print()">Print / PDF Export</button>
+            <button class="btn primary" onclick="triggerResearchExport()">Export Research CSV</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Side by Side Kinematic & EMG Tables -->
+      <div class="grid g2" style="margin-top:16px">
+        <div class="card">
+          <h3 class="section-title">Kinematic ROM & Asymmetry</h3>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Parameter</th>
+                <th>Right (Dominant)</th>
+                <th>Left (Affected)</th>
+                <th>Asymmetry</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Scapular Upward Rotation</td>
+                <td>32.0°</td>
+                <td>24.0°</td>
+                <td><span class="badge warn">8.0° Deficit</span></td>
+              </tr>
+              <tr>
+                <td>Max Arm Elevation</td>
+                <td>120.0°</td>
+                <td>120.0°</td>
+                <td>0.0°</td>
+              </tr>
+              <tr>
+                <td>Posterior Tilt</td>
+                <td>14.8°</td>
+                <td>8.5°</td>
+                <td><span class="badge warn">6.3° Deficit</span></td>
+              </tr>
+              <tr>
+                <td>Movement Symmetry Index</td>
+                <td colspan="3"><b style="color:#e67e22">75.0% (Moderate Asymmetry)</b></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3 class="section-title">Normalized Muscle Activation (%MVIC)</h3>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Muscle Group</th>
+                <th>Right</th>
+                <th>Left</th>
+                <th>Ratio (R:L)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Upper Trapezius (UT)</td>
+                <td>60.0%</td>
+                <td>45.0%</td>
+                <td>1.33</td>
+              </tr>
+              <tr>
+                <td>Middle Trapezius (MT)</td>
+                <td>35.0%</td>
+                <td>20.0%</td>
+                <td>1.75</td>
+              </tr>
+              <tr>
+                <td>Lower Trapezius (LT)</td>
+                <td>35.0%</td>
+                <td>20.0%</td>
+                <td>1.75</td>
+              </tr>
+              <tr>
+                <td>Serratus Anterior (SA)</td>
+                <td>42.0%</td>
+                <td>62.0%</td>
+                <td>0.68 (Altered)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Objective Findings & Clinician Interpretation Notes -->
+      <div class="grid g2" style="margin-top:16px">
+        <div class="card">
+          <h3 class="section-title">Automated Biomechanical Findings</h3>
+          <div class="finding">
+            <strong>Kinematic Deficit in Upward Rotation</strong>
+            Significant side-to-side deficit (8.0°) noted in left scapular upward rotation at 120° arm elevation.
+          </div>
+          <div class="finding">
+            <strong>Altered Muscle Activation Pattern</strong>
+            Elevated Serratus Anterior activation coupled with diminished Lower Trapezius ratio on affected side during eccentric lowering phase.
+          </div>
+          <div class="finding">
+            <strong>Clinical Classification</strong>
+            Indicative of Type II Scapular Dyskinesis (Inferior/Medial Border prominence). Clinical correlation advised.
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="section-title">Clinician Notes & Rehabilitation Plan</h3>
+          <textarea id="clinician-notes-area" style="width:100%;height:150px;border:1px solid var(--line);border-radius:12px;padding:12px;resize:vertical;font-size:13px" placeholder="Enter clinical diagnosis, prescribed therapeutic exercises, or follow-up schedule..."></textarea>
+          <div class="actions" style="margin-top:12px">
+            <button class="btn cyan" onclick="saveClinicianNotes()">Save Notes to Database</button>
+            <button class="btn ghost" onclick="go('research')">Open Research Datasets →</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. RESEARCH MODE PAGE -->
+    <section class="page" id="research">
+      <h1 class="title">Research & Data Export Mode</h1>
+      <p class="subtitle">Structured variable dictionary for advanced analytics in SPSS, R, Python, and MATLAB.</p>
+
+      <div class="grid g3" style="margin-top:18px">
+        <div class="card">
+          <div class="muted">Cohort Study ID</div>
+          <div class="big" style="font-size:24px">SCAP-2026-A</div>
+        </div>
+        <div class="card">
+          <div class="muted">Active Participant</div>
+          <div class="big" style="font-size:24px" id="research-patient-id">P-001</div>
+        </div>
+        <div class="card">
+          <div class="muted">Sampling Frequency</div>
+          <div class="big" style="font-size:24px">50 Hz Kin / 1 kHz EMG</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3 class="section-title">Export Variable Codebook</h3>
+        <div class="status-grid">
+          <div class="status"><strong>Raw 9-DoF IMU</strong><small>Acc, Gyro, Mag (Calibrated SI units)</small></div>
+          <div class="status"><strong>ISB Euler Angles</strong><small>Upward rotation, tilt, protraction</small></div>
+          <div class="status"><strong>Raw sEMG (6 ch)</strong><small>Microvolts (uV), 20–450Hz bandpass</small></div>
+          <div class="status"><strong>RMS / %MVIC EMG</strong><small>100ms moving window, rectified</small></div>
+          <div class="status"><strong>Protocol Metadata</strong><small>Trial repetition, velocity, timestamp</small></div>
+          <div class="status"><strong>Clinical Covariates</strong><small>NPRS pain, side, injury history</small></div>
+        </div>
+        <div class="actions" style="margin-top:20px">
+          <button class="btn primary" onclick="triggerResearchExport()">⬇ Download Research CSV (SPSS / R)</button>
+          <button class="btn ghost" onclick="showToast('JSON Raw dataset package generated.')">Export Raw JSON Data</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. SETTINGS PAGE -->
+    <section class="page" id="settings">
+      <h1 class="title">Settings & System Calibration</h1>
+      <p class="subtitle">Configure clinical threshold standards, sensor firmware, and angle coordinate systems.</p>
+
+      <div class="grid g2" style="margin-top:18px">
+        <div class="card">
+          <h3 class="section-title">Protocol Preferences</h3>
+          <div class="formgrid">
+            <div class="field">
+              <label>Default Motion Plane</label>
+              <select>
+                <option>Sagittal Flexion</option>
+                <option>Frontal Abduction</option>
+                <option>Scaption (30° anterior)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Default Repetitions</label>
+              <select>
+                <option>3 repetitions</option>
+                <option>5 repetitions</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>EMG Normalization Method</label>
+              <select>
+                <option>%MVIC (Maximum Voluntary Isometric Contraction)</option>
+                <option>Submaximal Reference Volts</option>
+                <option>RMS Peak Envelope</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Angle Units</label>
+              <select>
+                <option>Degrees (°)</option>
+                <option>Radians (rad)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="section-title">Hardware Hub Diagnostics</h3>
+          <div class="status">
+            <strong>SCAPTRACK Wireless Hub v2.1</strong>
+            <small>Firmware: 1.0.4 · BLE 5.3 Connected · Signal: -42 dBm</small>
+            <div class="progress" style="margin-top:10px">
+              <span style="width:92%"></span>
+            </div>
+          </div>
+          <div class="actions" style="margin-top:16px">
+            <button class="btn ghost" onclick="showToast('Firmware is up-to-date (v1.0.4)')">Check Firmware</button>
+            <button class="btn ghost" onclick="showToast('Sensor recalibration utility launched.')">Recalibrate IMUs</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Toast notification box -->
+<div id="toast"></div>
+
+<!-- JavaScript modules -->
+<script src="/static/js/app.js"></script>
+<script src="/static/js/live_stream.js"></script>
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SCAPTRACK — Clinical Biomechanics & Kinematics Lab</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+<div class="app">
+  <!-- Left Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div>
+        <div class="logo">SCAP<span>TRACK</span></div>
+        <div class="tag">CLINICAL MOTION LAB</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="active" data-page="dashboard"><span class="ico">⌂</span> Dashboard</button>
+      <button data-page="patients"><span class="ico">♙</span> Patients</button>
+      <button data-page="setup"><span class="ico">◉</span> Sensor Setup</button>
+      <button data-page="assessment"><span class="ico">◎</span> Assessment</button>
+      <button data-page="live"><span class="ico">⌁</span> Live Analysis</button>
+      <button data-page="reports"><span class="ico">▤</span> Reports</button>
+      <button data-page="research"><span class="ico">⌬</span> Research Mode</button>
+      <button data-page="settings"><span class="ico">⚙</span> Settings</button>
+    </nav>
+    <div class="sidebar-bottom">
+      <span class="dot pulse"></span> 18/18 sensors online<br>
+      <span style="color:#7895a5; font-size:11px">Bluetooth 5.3 BLE Ready</span>
+    </div>
+  </aside>
+
+  <!-- Main View Area -->
+  <main class="main">
+    <!-- Topbar -->
+    <div class="topbar">
+      <div class="crumb">SCAPTRACK / <b id="crumb">Dashboard</b></div>
+      
+      <!-- Global Stream Mode Switcher -->
+      <div class="mode-switch-wrapper">
+        <button id="top-btn-mode-live" class="mode-btn active live-mode" onclick="setStreamMode('live')">
+          <span class="live-indicator-dot pulsing" id="top-live-dot"></span>
+          <span>Live Sensor Stream</span>
+        </button>
+        <button id="top-btn-mode-pretrained" class="mode-btn" onclick="setStreamMode('pretrained')">
+          <span>🧠</span>
+          <span>Pre-trained Model</span>
+        </button>
+      </div>
+
+      <div class="profile">
+        <div style="text-align:right">
+          <b>Dr. Khyati</b>
+          <div class="muted" style="font-size:11px">Lead Biomechanist / PT</div>
+        </div>
+        <div class="avatar">K</div>
+      </div>
+    </div>
+
+    <!-- 1. DASHBOARD PAGE -->
+    <section class="page active" id="dashboard">
+      <div class="hero">
+        <h2>Objective scapular assessment, simplified.</h2>
+        <p>Monitor scapular kinematics and synchronized surface EMG together in a high-precision, wearable clinical workflow.</p>
+        <div class="actions" style="margin-top:16px">
+          <button class="btn cyan" onclick="go('patients')">+ New Assessment</button>
+          <button class="btn ghost" onclick="go('setup')">Pair Sensors</button>
+        </div>
+        <div class="sensor-strip">
+          <span class="sensor-chip"><i></i>18 sensors online</span>
+          <span class="sensor-chip"><i></i>Hub Battery 92%</span>
+          <span class="sensor-chip"><i></i>Real-time 50Hz Stream</span>
+        </div>
+      </div>
+
+      <!-- Metric Stats -->
+      <div class="grid g4" style="margin-top:16px">
+        <div class="card metric">
+          <div>
+            <h3>Active Patients</h3>
+            <div class="big" id="stat-active-patients">42</div>
+          </div>
+          <div class="icon">♙</div>
+        </div>
+        <div class="card metric">
+          <div>
+            <h3>Today's Assessments</h3>
+            <div class="big" id="stat-today-assessments">05</div>
+          </div>
+          <div class="icon">◎</div>
+        </div>
+        <div class="card metric">
+          <div>
+            <h3>Reports Pending</h3>
+            <div class="big" id="stat-reports-pending">02</div>
+          </div>
+          <div class="icon">▤</div>
+        </div>
+        <div class="card metric">
+          <div>
+            <h3>Device Health</h3>
+            <div class="big" id="stat-device-health">98%</div>
+          </div>
+          <div class="icon">♥</div>
+        </div>
+      </div>
+
+      <!-- Recent Patients & Workflow Checklist -->
+      <div class="grid g2" style="margin-top:16px">
+        <div class="card">
+          <h3 class="section-title">Recent Patients</h3>
+          <div id="recent-patients-list">
+            <!-- Rendered by app.js -->
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="section-title">Standard Clinical Workflow</h3>
+          <div class="checklist">
+            <div class="check">✓ <b>1.</b> Select or register patient profile</div>
+            <div class="check">✓ <b>2.</b> Position anatomical IMU landmarks</div>
+            <div class="check">✓ <b>3.</b> Run 3-second static calibration</div>
+            <div class="check">✓ <b>4.</b> Verify 6-channel sEMG impedance</div>
+            <div class="check">→ <b>5.</b> Record 3 bilateral movement trials</div>
+            <div class="check">→ <b>6.</b> Review report & export research data</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. PATIENTS PAGE -->
+    <section class="page" id="patients">
+      <h1 class="title">Patient Management</h1>
+      <p class="subtitle">Create coded patient profiles and launch an assessment session.</p>
+      
+      <div class="grid g2" style="margin-top:18px">
+        <div class="card">
+          <h3 class="section-title">Patient Profile Form</h3>
+          <form id="patient-form" onsubmit="handleSavePatient(event)">
+            <div class="formgrid">
+              <div class="field">
+                <label>Patient ID (Coded)</label>
+                <input id="patient-id-input" value="P-004" required />
+              </div>
+              <div class="field">
+                <label>Age</label>
+                <input id="patient-age-input" type="number" value="24" required />
+              </div>
+              <div class="field">
+                <label>Name / Code Name</label>
+                <input id="patient-name-input" placeholder="e.g. A. Mehta" required />
+              </div>
+              <div class="field">
+                <label>Sex</label>
+                <select id="patient-sex-input">
+                  <option value="Female">Female</option>
+                  <option value="Male">Male</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Dominant Side</label>
+                <select id="patient-dom-input">
+                  <option value="Right">Right</option>
+                  <option value="Left">Left</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Affected Side</label>
+                <select id="patient-aff-input">
+                  <option value="Left">Left</option>
+                  <option value="Right">Right</option>
+                  <option value="Bilateral">Bilateral</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="actions" style="margin-top:16px">
+              <button type="submit" class="btn primary">Save & Activate Patient</button>
+              <button type="button" class="btn ghost" onclick="go('setup')">Continue to Sensor Setup →</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3 class="section-title">Clinical History</h3>
+          <div class="formgrid">
+            <div class="field">
+              <label>NPRS Pain Scale (0–10)</label>
+              <input id="patient-nprs-input" type="number" min="0" max="10" value="4" />
+            </div>
+            <div class="field">
+              <label>Sport / Activity Level</label>
+              <input id="patient-activity-input" placeholder="e.g. Badminton, Overhead throwing" />
+            </div>
+            <div class="field">
+              <label>Previous Shoulder Injury</label>
+              <select id="patient-injury-input">
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Assessment Type</label>
+              <select id="patient-type-input">
+                <option value="Baseline">Baseline</option>
+                <option value="Follow-up">Follow-up</option>
+                <option value="Research visit">Research visit</option>
+              </select>
+            </div>
+          </div>
+          <div class="finding" style="margin-top:16px">
+            <strong>Active Cohort Selection:</strong>
+            <span id="active-patient-badge">Selected: P-001 (A. Mehta)</span>
+          </div>
+          <p class="footer-note">Coded IDs ensure de-identification compliance for research archiving and GDPR/HIPAA standards.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. SENSOR SETUP PAGE -->
+    <section class="page" id="setup">
+      <h1 class="title">Sensor Setup & Landmarks</h1>
+      <p class="subtitle">Confirm anatomical placement and channel battery status before calibration.</p>
+
+      <div class="grid g2" style="margin-top:18px">
+        <div class="card">
+          <h3 class="section-title">Anatomical Landmark Placement</h3>
+          <div class="bodymap">
+            <div class="body-shape">
+              <!-- Right Scapular Markers -->
+              <span class="sensor-dot sd1" title="Right Superior Angle">1</span>
+              <span class="sensor-dot sd2" title="Right Root of Spine">2</span>
+              <span class="sensor-dot sd3" title="Right Inferior Angle">3</span>
+              <!-- Left Scapular Markers -->
+              <span class="sensor-dot sd4" title="Left Superior Angle">1</span>
+              <span class="sensor-dot sd5" title="Left Root of Spine">2</span>
+              <span class="sensor-dot sd6" title="Left Inferior Angle">3</span>
+              <!-- Thoracic Spine Reference -->
+              <span class="sensor-dot sd7" title="Thoracic T2">T2</span>
+              <span class="sensor-dot sd8" title="Thoracic T4">T4</span>
+              <span class="sensor-dot sd9" title="Thoracic T7">T7</span>
+            </div>
+          </div>
+          <div class="actions" style="margin-top:14px">
+            <button class="btn cyan" onclick="showToast('Landmark interactive placement guide active.')">Open Landmark Guide</button>
+            <button class="btn ghost" onclick="showToast('All 18 sensor placements confirmed ✓')">Mark All Placed ✓</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="section-title">Connection & Signal Quality</h3>
+          <div class="status-grid">
+            <div class="status">
+              <strong>R Scapula</strong>
+              <small><span class="dot"></span> 4/4 online · 100Hz</small>
+            </div>
+            <div class="status">
+              <strong>L Scapula</strong>
+              <small><span class="dot"></span> 4/4 online · 100Hz</small>
+            </div>
+            <div class="status">
+              <strong>Thorax (T2-T7)</strong>
+              <small><span class="dot"></span> 3/3 online · 100Hz</small>
+            </div>
+            <div class="status">
+              <strong>Humerus (Bilateral)</strong>
+              <small><span class="dot"></span> 4/4 online · 100Hz</small>
+            </div>
+            <div class="status">
+              <strong>EMG (6-Channel)</strong>
+              <small><span class="dot"></span> 6/6 channels · 1kHz</small>
+            </div>
+            <div class="status">
+              <strong>Hub Battery</strong>
+              <small>92% · Low noise</small>
+            </div>
+          </div>
+
+          <div style="margin-top:20px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+              <b>System Readiness Score</b>
+              <b>96% (Optimal)</b>
+            </div>
+            <div class="progress">
+              <span style="width:96%"></span>
+            </div>
+          </div>
+
+          <div class="actions" style="margin-top:20px">
+            <button class="btn primary" onclick="go('assessment')">Proceed to Calibration →</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. ASSESSMENT PROTOCOL PAGE -->
+    <section class="page" id="assessment">
+      <h1 class="title">Assessment Protocol</h1>
+      <p class="subtitle">Standardise zero-calibration, EMG verification and movement protocols.</p>
+
+      <div class="grid g2" style="margin-top:18px">
+        <div class="card">
+          <h3 class="section-title">1 · Static Calibration Checklist</h3>
+          <div class="checklist">
+            <label class="check"><input type="checkbox" id="c1" checked> Patient upright, neutral resting posture</label>
+            <label class="check"><input type="checkbox" id="c2" checked> Thoracic spinal landmarks (T2/T4/T7) confirmed</label>
+            <label class="check"><input type="checkbox" id="c3" checked> Scapular triad sensors secured firmly</label>
+            <label class="check"><input type="checkbox" id="c4" checked> Humeral cuffs aligned with epicondyles</label>
+          </div>
+          <div style="margin-top:16px;padding:16px;border-radius:14px;background:#eefbfd;text-align:center">
+            <div class="live-value" style="font-size:32px;color:#0a5a6b" id="calib-score-display">96%</div>
+            <div class="muted">Calibration Quality Confidence</div>
+          </div>
+          <button class="btn cyan" style="width:100%;margin-top:14px" onclick="runStaticCalibration()">Execute Zero Calibration</button>
+        </div>
+
+        <div class="card">
+          <h3 class="section-title">2 · EMG Signal Quality & Impedance</h3>
+          <div class="status-grid">
+            <div class="status"><strong>Upper Trapezius</strong><small><span class="dot"></span> Impedance < 5 kΩ</small></div>
+            <div class="status"><strong>Middle Trapezius</strong><small><span class="dot"></span> Impedance < 5 kΩ</small></div>
+            <div class="status"><strong>Lower Trapezius</strong><small><span class="dot"></span> Impedance < 5 kΩ</small></div>
+            <div class="status"><strong>Serratus Anterior</strong><small><span class="dot"></span> Impedance < 5 kΩ</small></div>
+            <div class="status"><strong>Infraspinatus</strong><small><span class="dot"></span> Impedance < 5 kΩ</small></div>
+            <div class="status"><strong>Anterior Deltoid</strong><small><span class="dot"></span> Impedance < 5 kΩ</small></div>
+          </div>
+          <button class="btn ghost" style="width:100%;margin-top:14px" onclick="showToast('EMG placement guide & SENIAM guidelines loaded.')">Open SENIAM Electrode Guide</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3 class="section-title">3 · Movement Protocol Parameters</h3>
+        <div class="formgrid">
+          <div class="field">
+            <label>Movement Plane</label>
+            <select id="proto-movement">
+              <option value="Arm elevation — flexion">Arm elevation — sagittal flexion</option>
+              <option value="Arm elevation — abduction">Arm elevation — frontal abduction</option>
+              <option value="Scaption">Scaption (plane of scapula ~30° anterior)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Target Repetitions</label>
+            <select id="proto-trials">
+              <option value="3">3 repetitions (Standard)</option>
+              <option value="5">5 repetitions (Research)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Target Elevation ROM</label>
+            <select id="proto-range">
+              <option value="0° → 120°">0° → 120° (Functional)</option>
+              <option value="0° → 180°">0° → 180° (Full Elevation)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Movement Phase</label>
+            <select id="proto-phase">
+              <option value="Elevation + lowering">Elevation (Concentric) + Lowering (Eccentric)</option>
+              <option value="Elevation only">Elevation only</option>
+            </select>
+          </div>
+        </div>
+        <div class="actions" style="margin-top:16px">
+          <button class="btn primary" onclick="go('live')">Start Motion Recording →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. LIVE ANALYSIS PAGE -->
+    <section class="page" id="live">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <div>
+          <h1 class="title" id="live-page-title">Live Biomechanical Analysis</h1>
+          <p class="subtitle" id="live-page-subtitle">Real-time scapulothoracic kinematics and surface EMG stream.</p>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <!-- Mode Toggle Buttons inside page -->
+          <div class="mode-switch-wrapper">
+            <button id="page-btn-mode-live" class="mode-btn active live-mode" onclick="setStreamMode('live')">
+              <span class="live-indicator-dot pulsing" id="page-live-dot"></span>
+              Live Sensor
+            </button>
+            <button id="page-btn-mode-pretrained" class="mode-btn" onclick="setStreamMode('pretrained')">
+              <span>🧠</span>
+              Pre-trained AI Model
+            </button>
+          </div>
+
+          <div class="actions">
+            <button id="btn-toggle-stream" class="btn cyan" onclick="toggleLiveStream()">▶ Start Stream</button>
+            <button class="btn ghost" onclick="resetLiveStream()">↺ Reset</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pre-trained Model Configuration & Benchmark Toolbar (Visible in Pre-trained mode) -->
+      <div id="pretrained-model-panel" class="model-control-bar" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <strong style="font-size:13px;color:var(--navy)">Select Pre-trained Model:</strong>
+          <div class="model-pill-group" id="model-pills-container">
+            <button class="model-pill" onclick="switchPretrainedModel('normative')">Normative Baseline (2:1)</button>
+            <button class="model-pill active" onclick="switchPretrainedModel('type2_dyskinesis')">Type II Dyskinesis (Medial Border)</button>
+            <button class="model-pill" onclick="switchPretrainedModel('type1_dyskinesis')">Type I Impingement</button>
+            <button class="model-pill" onclick="switchPretrainedModel('type3_dyskinesis')">Type III Shrug</button>
+            <button class="model-pill" onclick="switchPretrainedModel('overhead_athlete')">Overhead Athlete</button>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span class="ai-spec-badge" id="ai-model-arch-badge">⚡ BiLSTM-Transformer v2.4</span>
+          <span class="ai-spec-badge" id="ai-model-acc-badge">🎯 Accuracy: 96.4%</span>
+          <span class="ai-spec-badge" id="ai-latency-badge">⏱ Latency: 11ms</span>
+        </div>
+      </div>
+
+      <!-- AI Classification Banner (Shown in Pre-trained Mode or when AI evaluated) -->
+      <div id="ai-eval-banner" class="finding" style="display:none;margin-top:14px;background:#f0fbfe;border-left:4px solid #0ea5b7">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <div>
+            <strong id="ai-classification-title" style="color:#084d5a;font-size:15px">AI Classification: Type II Scapular Dyskinesis</strong>
+            <span id="ai-model-desc-text" style="font-size:13px;color:#356172">Medial border prominence with 8.0° upward rotation lag at peak elevation.</span>
+          </div>
+          <div style="display:flex;gap:14px;align-items:center">
+            <div style="text-align:right">
+              <span class="muted" style="font-size:11px">Dyskinesis Risk</span>
+              <div id="ai-risk-val" style="font-size:16px;font-weight:800;color:#e67e22">94.2%</div>
+            </div>
+            <div style="text-align:right">
+              <span class="muted" style="font-size:11px">Model Confidence</span>
+              <div id="ai-confidence-val" style="font-size:16px;font-weight:800;color:#27ae60">94.8%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Real-time angle gauges -->
       <div class="grid g3" style="margin-top:16px">
         <div class="card">
