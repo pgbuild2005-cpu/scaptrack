@@ -25,6 +25,7 @@ from backend.schemas import (
     DashboardStats
 )
 from backend.simulation import generate_trial_time_series
+from backend.esp32_manager import esp32_manager
 
 # Initialize DB tables
 Base.metadata.create_all(bind=engine)
@@ -99,6 +100,9 @@ def seed_initial_data():
             db.commit()
     finally:
         db.close()
+
+    # Seed ESP32 hardware and 18-sensor table
+    esp32_manager.seed_initial_hardware_state()
 
 # Ensure database is seeded
 seed_initial_data()
@@ -249,6 +253,8 @@ from backend.models_pretrained import (
     generate_model_frame,
     generate_model_curves
 )
+from backend.esp32_manager import esp32_manager
+from backend.models import ESP32RecordingSession, ESP32TelemetryRecord, ESP32Device, IMUSensorNode
 
 @app.get("/api/models/list")
 def get_models_list():
@@ -288,6 +294,137 @@ def run_model_inference(payload: dict):
     }
 
 
+# ---------------- ESP32 WIRELESS HUB & IMU SENSORS API ----------------
+
+@app.post("/api/esp32/telemetry")
+def ingest_esp32_telemetry(payload: dict, db: Session = Depends(get_db)):
+    """
+    Primary endpoint for ESP32 Hardware Hub to POST live wireless sensor telemetry.
+    Ingests frames, computes kinematics, and persists records to SQLite database if recording.
+    """
+    result = esp32_manager.ingest_telemetry_packet(payload, db=db)
+    return result
+
+@app.get("/api/esp32/status")
+def get_esp32_hardware_status(db: Session = Depends(get_db)):
+    """
+    Returns live connection status of the ESP32 Hub and granular live status,
+    battery %, RSSI signal, temperature, calibration, and orientation of all 18 IMU sensors.
+    """
+    return esp32_manager.get_hardware_status(db=db)
+
+@app.post("/api/esp32/session/start")
+def start_esp32_recording_session(payload: dict, db: Session = Depends(get_db)):
+    """Starts a persistent recording session for wireless ESP32 telemetry in the database."""
+    patient_id = payload.get("patient_id", "P-001")
+    movement_plane = payload.get("movement_plane", "Sagittal Flexion")
+    session_id = esp32_manager.start_recording_session(patient_id=patient_id, movement_plane=movement_plane, db=db)
+    return {
+        "status": "recording_started",
+        "session_id": session_id,
+        "patient_id": patient_id,
+        "movement_plane": movement_plane
+    }
+
+@app.post("/api/esp32/session/stop")
+def stop_esp32_recording_session(db: Session = Depends(get_db)):
+    """Stops the active recording session and computes duration and total saved packets."""
+    summary = esp32_manager.stop_recording_session(db=db)
+    if not summary:
+        return {"status": "no_active_session"}
+    return {
+        "status": "recording_stopped",
+        "session_id": summary.get("session_id"),
+        "patient_id": summary.get("patient_id"),
+        "total_packets": summary.get("total_packets"),
+        "duration_seconds": summary.get("duration_seconds"),
+        "session_status": summary.get("status")
+    }
+
+@app.get("/api/esp32/sessions")
+def list_esp32_recording_sessions(db: Session = Depends(get_db)):
+    """List all saved historical ESP32 telemetry sessions in the SQLite database."""
+    sessions = db.query(ESP32RecordingSession).order_by(ESP32RecordingSession.created_at.desc()).all()
+    return [
+        {
+            "session_id": s.session_id,
+            "patient_id": s.patient_id,
+            "movement_plane": s.movement_plane,
+            "status": s.status,
+            "total_packets": s.total_packets,
+            "duration_seconds": s.duration_seconds,
+            "avg_sample_rate_hz": s.avg_sample_rate_hz,
+            "created_at": s.created_at.isoformat() if s.created_at else None
+        }
+        for s in sessions
+    ]
+
+@app.get("/api/esp32/sessions/{session_id}")
+def get_esp32_session_data(session_id: str, db: Session = Depends(get_db)):
+    """Retrieve all recorded time-series telemetry records for a specific historical session."""
+    session = db.query(ESP32RecordingSession).filter(ESP32RecordingSession.session_id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    records = db.query(ESP32TelemetryRecord).filter(ESP32TelemetryRecord.session_id == session_id).order_by(ESP32TelemetryRecord.seq_number.asc()).all()
+    return {
+        "session_id": session.session_id,
+        "patient_id": session.patient_id,
+        "movement_plane": session.movement_plane,
+        "status": session.status,
+        "total_packets": session.total_packets,
+        "duration_seconds": session.duration_seconds,
+        "records_count": len(records),
+        "records": [
+            {
+                "seq": r.seq_number,
+                "timestamp_ms": r.timestamp_ms,
+                "arm_elevation_deg": r.arm_elevation_deg,
+                "scapula_r_deg": r.scapula_r_upward_deg,
+                "scapula_l_deg": r.scapula_l_upward_deg,
+                "asymmetry_deg": r.asymmetry_deg,
+                "emg_ut": r.emg_ut_r,
+                "emg_sa": r.emg_sa_l,
+                "time": r.created_at.isoformat() if r.created_at else None
+            }
+            for r in records
+        ]
+    }
+
+@app.get("/api/esp32/sessions/{session_id}/export")
+def export_esp32_session_csv(session_id: str, db: Session = Depends(get_db)):
+    """Exports raw historical ESP32 telemetry session as CSV file."""
+    session = db.query(ESP32RecordingSession).filter(ESP32RecordingSession.session_id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    records = db.query(ESP32TelemetryRecord).filter(ESP32TelemetryRecord.session_id == session_id).order_by(ESP32TelemetryRecord.seq_number.asc()).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "session_id", "patient_id", "seq_number", "timestamp_ms",
+        "arm_elevation_deg", "scapula_r_upward_deg", "scapula_l_upward_deg", "asymmetry_deg",
+        "scapula_r_tilt_deg", "scapula_l_tilt_deg", "scapula_r_pro_deg", "scapula_l_pro_deg",
+        "emg_ut_r_uV", "emg_ut_l_uV", "emg_sa_r_uV", "emg_sa_l_uV"
+    ])
+
+    for r in records:
+        writer.writerow([
+            session.session_id, session.patient_id, r.seq_number, r.timestamp_ms,
+            r.arm_elevation_deg, r.scapula_r_upward_deg, r.scapula_l_upward_deg, r.asymmetry_deg,
+            r.scapula_r_tilt_deg, r.scapula_l_tilt_deg, r.scapula_r_pro_deg, r.scapula_l_pro_deg,
+            r.emg_ut_r, r.emg_ut_l, r.emg_sa_r, r.emg_sa_l
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={session_id}_esp32_raw_telemetry.csv"}
+    )
+
+
 # ---------------- WEBSOCKET STREAM (LIVE & PRE-TRAINED TOGGLE) ----------------
 
 @app.websocket("/ws/live")
@@ -313,6 +450,12 @@ async def websocket_live_stream(websocket: WebSocket, mode: str = "live", model:
                     elif data.get("action") == "set_model":
                         if "model_id" in data:
                             current_model = data["model_id"]
+                    elif data.get("action") == "start_recording":
+                        p_id = data.get("patient_id", "P-001")
+                        m_plane = data.get("movement_plane", "Sagittal Flexion")
+                        esp32_manager.start_recording_session(patient_id=p_id, movement_plane=m_plane)
+                    elif data.get("action") == "stop_recording":
+                        esp32_manager.stop_recording_session()
                 except Exception:
                     pass
         except Exception:
@@ -328,31 +471,8 @@ async def websocket_live_stream(websocket: WebSocket, mode: str = "live", model:
                 packet = generate_model_frame(current_model, step)
                 packet["time"] = datetime.now(timezone.utc).isoformat()
             else:
-                phase = step / 100.0
-                sin_phase = 0.5 - 0.5 * math.cos(phase * 2.0 * math.pi)
-                
-                arm_deg = round(120.0 * sin_phase, 1)
-                scap_r = round(32.0 * (sin_phase ** 1.1) + random.uniform(-0.15, 0.15), 1)
-                scap_l = round(24.0 * (sin_phase ** 1.25) + random.uniform(-0.15, 0.15), 1)
-                
-                emg_ut = round(15.0 + 75.0 * sin_phase + random.uniform(-8, 8), 1)
-                emg_sa = round(12.0 + 82.0 * sin_phase + random.uniform(-6, 6), 1)
-
-                packet = {
-                    "type": "live_motion_frame",
-                    "mode": "live",
-                    "step": step,
-                    "arm_elevation": arm_deg,
-                    "scapula_r": scap_r,
-                    "scapula_l": scap_l,
-                    "diff": round(scap_r - scap_l, 1),
-                    "normative_ref": round(32.0 * (sin_phase ** 1.1), 1),
-                    "normative_band_min": round(max(0.0, 32.0 * (sin_phase ** 1.1) - 3.5), 1),
-                    "normative_band_max": round(32.0 * (sin_phase ** 1.1) + 3.5, 1),
-                    "emg_ut": emg_ut,
-                    "emg_sa": emg_sa,
-                    "time": datetime.now(timezone.utc).isoformat()
-                }
+                # Live mode streams complete 18-sensor ESP32 wireless frame
+                packet = esp32_manager.generate_simulated_esp32_frame(step)
 
             await websocket.send_json(packet)
             await asyncio.sleep(0.04)
