@@ -81,3 +81,89 @@ class ClinicianNote(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     patient = relationship("Patient", back_populates="notes")
+
+
+# ---------------- ESP32 WIRELESS HUB & IMU SENSORS DATA MODELS ----------------
+
+class ESP32Device(Base):
+    __tablename__ = "esp32_devices"
+
+    id = Column(String(50), primary_key=True) # e.g. "ESP32-HUB-01"
+    name = Column(String(100), default="SCAPTRACK Master Wireless Hub")
+    mac_address = Column(String(50), default="24:6F:28:B4:7A:12")
+    ip_address = Column(String(50), default="192.168.4.1")
+    firmware_version = Column(String(30), default="v2.1.4-BLE5")
+    battery_level = Column(Float, default=92.0)
+    rssi_dbm = Column(Integer, default=-44)
+    status = Column(String(30), default="Online") # "Online", "Streaming", "Disconnected"
+    sampling_rate_hz = Column(Float, default=50.0)
+    total_packets_received = Column(Integer, default=0)
+    last_heartbeat = Column(DateTime, default=utc_now)
+    created_at = Column(DateTime, default=utc_now)
+
+
+class IMUSensorNode(Base):
+    __tablename__ = "imu_sensor_nodes"
+
+    sensor_id = Column(String(50), primary_key=True) # e.g. "IMU_R_SUP", "IMU_T2", etc.
+    label = Column(String(100), nullable=False) # e.g. "Right Superior Angle"
+    body_region = Column(String(50), nullable=False) # "Right Scapula", "Left Scapula", "Thorax", "Humerus", "sEMG"
+    landmark_code = Column(String(20), default="SA1")
+    is_online = Column(Boolean, default=True)
+    calibration_status = Column(String(30), default="Calibrated") # "Calibrated", "Calibrating", "Uncalibrated"
+    battery_percent = Column(Float, default=95.0)
+    rssi_dbm = Column(Integer, default=-46)
+    packet_rate_hz = Column(Float, default=50.0)
+    temperature_c = Column(Float, default=32.0)
+    roll = Column(Float, default=0.0)
+    pitch = Column(Float, default=0.0)
+    yaw = Column(Float, default=0.0)
+    accel_x = Column(Float, default=0.0)
+    accel_y = Column(Float, default=0.0)
+    accel_z = Column(Float, default=1.0)
+    gyro_x = Column(Float, default=0.0)
+    gyro_y = Column(Float, default=0.0)
+    gyro_z = Column(Float, default=0.0)
+    updated_at = Column(DateTime, default=utc_now)
+
+
+class ESP32RecordingSession(Base):
+    __tablename__ = "esp32_recording_sessions"
+
+    session_id = Column(String(50), primary_key=True) # e.g. "SESS-2026-10-05-001"
+    patient_id = Column(String(50), ForeignKey("patients.id"), nullable=False)
+    movement_plane = Column(String(100), default="Sagittal Flexion")
+    status = Column(String(30), default="Active") # "Active", "Completed", "Archived"
+    total_packets = Column(Integer, default=0)
+    duration_seconds = Column(Float, default=0.0)
+    avg_sample_rate_hz = Column(Float, default=50.0)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utc_now)
+
+    records = relationship("ESP32TelemetryRecord", back_populates="session", cascade="all, delete-orphan")
+
+
+class ESP32TelemetryRecord(Base):
+    __tablename__ = "esp32_telemetry_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(50), ForeignKey("esp32_recording_sessions.session_id"), nullable=False)
+    patient_id = Column(String(50), nullable=False)
+    seq_number = Column(Integer, default=0)
+    timestamp_ms = Column(Integer, default=0)
+    arm_elevation_deg = Column(Float, default=0.0)
+    scapula_r_upward_deg = Column(Float, default=0.0)
+    scapula_l_upward_deg = Column(Float, default=0.0)
+    asymmetry_deg = Column(Float, default=0.0)
+    scapula_r_tilt_deg = Column(Float, default=0.0)
+    scapula_l_tilt_deg = Column(Float, default=0.0)
+    scapula_r_pro_deg = Column(Float, default=0.0)
+    scapula_l_pro_deg = Column(Float, default=0.0)
+    emg_ut_r = Column(Float, default=0.0)
+    emg_ut_l = Column(Float, default=0.0)
+    emg_sa_r = Column(Float, default=0.0)
+    emg_sa_l = Column(Float, default=0.0)
+    sensors_payload_json = Column(Text, nullable=True) # Serialized 18-sensor array readings & status
+    created_at = Column(DateTime, default=utc_now)
+
+    session = relationship("ESP32RecordingSession", back_populates="records")
